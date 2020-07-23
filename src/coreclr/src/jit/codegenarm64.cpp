@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 /*XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
@@ -1574,7 +1573,10 @@ void CodeGen::genEHCatchRet(BasicBlock* block)
 
 //  move an immediate value into an integer register
 
-void CodeGen::instGen_Set_Reg_To_Imm(emitAttr size, regNumber reg, ssize_t imm, insFlags flags)
+void CodeGen::instGen_Set_Reg_To_Imm(emitAttr  size,
+                                     regNumber reg,
+                                     ssize_t   imm,
+                                     insFlags flags DEBUGARG(size_t targetHandle) DEBUGARG(unsigned gtFlags))
 {
     // reg cannot be a FP register
     assert(!genIsValidFloatReg(reg));
@@ -1586,7 +1588,7 @@ void CodeGen::instGen_Set_Reg_To_Imm(emitAttr size, regNumber reg, ssize_t imm, 
     if (EA_IS_RELOC(size))
     {
         // This emits a pair of adrp/add (two instructions) with fix-ups.
-        GetEmitter()->emitIns_R_AI(INS_adrp, size, reg, imm);
+        GetEmitter()->emitIns_R_AI(INS_adrp, size, reg, imm DEBUGARG(targetHandle) DEBUGARG(gtFlags));
     }
     else if (imm == 0)
     {
@@ -1683,7 +1685,9 @@ void CodeGen::genSetRegToConst(regNumber targetReg, var_types targetType, GenTre
 
             if (con->ImmedValNeedsReloc(compiler))
             {
-                instGen_Set_Reg_To_Imm(EA_HANDLE_CNS_RELOC, targetReg, cnsVal);
+                instGen_Set_Reg_To_Imm(EA_HANDLE_CNS_RELOC, targetReg, cnsVal,
+                                       INS_FLAGS_DONT_CARE DEBUGARG(tree->AsIntCon()->gtTargetHandle)
+                                           DEBUGARG(tree->AsIntCon()->gtFlags));
                 regSet.verifyRegUsed(targetReg);
             }
             else
@@ -3775,7 +3779,9 @@ void CodeGen::genEmitHelperCall(unsigned helper, int argSize, emitAttr retSize, 
         callTarget = callTargetReg;
 
         // adrp + add with relocations will be emitted
-        GetEmitter()->emitIns_R_AI(INS_adrp, EA_PTR_DSP_RELOC, callTarget, (ssize_t)pAddr);
+        GetEmitter()->emitIns_R_AI(INS_adrp, EA_PTR_DSP_RELOC, callTarget,
+                                   (ssize_t)pAddr DEBUGARG((size_t)compiler->eeFindHelper(helper))
+                                       DEBUGARG(GTF_ICON_METHOD_HDL));
         GetEmitter()->emitIns_R_R(INS_ldr, EA_PTRSIZE, callTarget, callTarget);
         callType = emitter::EC_INDIR_R;
     }
@@ -4693,7 +4699,7 @@ void CodeGen::genStoreIndTypeSIMD12(GenTree* treeNode)
 
     genConsumeOperands(treeNode->AsOp());
 
-    // Need an addtional integer register to extract upper 4 bytes from data.
+    // Need an additional integer register to extract upper 4 bytes from data.
     regNumber tmpReg = treeNode->GetSingleTempReg();
     assert(tmpReg != addr->GetRegNum());
 
@@ -4760,16 +4766,13 @@ void CodeGen::genStoreLclTypeSIMD12(GenTree* treeNode)
 {
     assert((treeNode->OperGet() == GT_STORE_LCL_FLD) || (treeNode->OperGet() == GT_STORE_LCL_VAR));
 
-    unsigned offs   = 0;
-    unsigned varNum = treeNode->AsLclVarCommon()->GetLclNum();
+    GenTreeLclVarCommon* lclVar = treeNode->AsLclVarCommon();
+
+    unsigned offs   = lclVar->GetLclOffs();
+    unsigned varNum = lclVar->GetLclNum();
     assert(varNum < compiler->lvaCount);
 
-    if (treeNode->OperGet() == GT_STORE_LCL_FLD)
-    {
-        offs = treeNode->AsLclFld()->GetLclOffs();
-    }
-
-    GenTree* op1 = treeNode->AsOp()->gtOp1;
+    GenTree* op1 = lclVar->gtGetOp1();
 
     if (op1->isContained())
     {
@@ -4786,8 +4789,8 @@ void CodeGen::genStoreLclTypeSIMD12(GenTree* treeNode)
     }
     regNumber operandReg = genConsumeReg(op1);
 
-    // Need an addtional integer register to extract upper 4 bytes from data.
-    regNumber tmpReg = treeNode->GetSingleTempReg();
+    // Need an additional integer register to extract upper 4 bytes from data.
+    regNumber tmpReg = lclVar->GetSingleTempReg();
 
     // store lower 8 bytes
     GetEmitter()->emitIns_S_R(INS_str, EA_8BYTE, operandReg, varNum, offs);
